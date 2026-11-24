@@ -5,6 +5,9 @@ on:
     - cron: '0 0,12 * * *' # 每 12 小时自动检查
   workflow_dispatch:      # 支持手动运行
 
+permissions:
+  contents: write
+
 concurrency:
   group: sync-releases
   cancel-in-progress: false
@@ -20,9 +23,9 @@ jobs:
         env:
           # Schedule uses the default branch; workflow_dispatch uses the selected branch.
           SYNC_TARGET_BRANCH: ${{ github.ref_name }}
-          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          SYNC_TOKEN: ${{ github.token }}
         with:
-          github-token: ${{ secrets.SYNC_TOKEN }}
+          github-token: ${{ github.token }}
           script: |
             const upstreamOwner = "yt-dlp";
             const upstreamRepo = "yt-dlp";
