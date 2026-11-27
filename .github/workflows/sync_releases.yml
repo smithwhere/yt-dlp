@@ -5,9 +5,6 @@ on:
     - cron: '0 0,12 * * *' # 每 12 小时自动检查
   workflow_dispatch:      # 支持手动运行
 
-permissions:
-  contents: write
-
 concurrency:
   group: sync-releases
   cancel-in-progress: false
@@ -15,17 +12,20 @@ concurrency:
 jobs:
   api-sync:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     timeout-minutes: 360
     steps:
       - name: Sync via GitHub API
         id: sync
-        uses: actions/github-script@v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           # Schedule uses the default branch; workflow_dispatch uses the selected branch.
           SYNC_TARGET_BRANCH: ${{ github.ref_name }}
-          SYNC_TOKEN: ${{ github.token }}
+          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          RELEASE_TOKEN: ${{ github.token }}
         with:
-          github-token: ${{ github.token }}
+          github-token: ${{ secrets.SYNC_TOKEN }}
           script: |
             const upstreamOwner = "yt-dlp";
             const upstreamRepo = "yt-dlp";
@@ -91,7 +91,7 @@ jobs:
             }
             const syncedTags = [];
             const skippedDraftTags = [];
-            const draftMarker = "<!-- managed-by-release-sync-v1 -->";
+            const syncMarker = "<!-- managed-by-release-sync-v1 -->";
 
             // Oldest first, so release order remains chronological.
             for (const release of upstreamReleases.data.reverse()) {
@@ -111,7 +111,7 @@ jobs:
               }
               let createdNow = false;
               // Never modify or publish a draft that was not created by this workflow.
-              if (targetRelease?.draft && !(targetRelease.body || "").includes(draftMarker)) {
+              if (targetRelease?.draft && !(targetRelease.body || "").includes(syncMarker)) {
                 skippedDraftTags.push(release.tag_name);
                 core.warning(`跳过手动创建的草稿 Release：${release.tag_name}`);
                 continue;
@@ -125,7 +125,7 @@ jobs:
                   tag_name: release.tag_name,
                   target_commitish: targetBranch,
                   name: release.name || release.tag_name,
-                  body: (release.body || "自动同步自上游仓库更新日志。") + "\n\n" + draftMarker,
+                  body: (release.body || "自动同步自上游仓库更新日志。") + "\n\n" + syncMarker,
                   draft: true,
                   prerelease: release.prerelease
                 });
@@ -230,12 +230,13 @@ jobs:
               }
 
               // Publish only after every expected asset is present.
+              // Keep the sync marker so the release build workflows can skip mirrors.
               if (createdNow || targetRelease.draft) {
-                await github.rest.repos.updateRelease({
+                // GitHub suppresses follow-up workflow runs for GITHUB_TOKEN events.
+                await getOctokit(process.env.RELEASE_TOKEN).rest.repos.updateRelease({
                   owner: myOwner,
                   repo: myRepo,
                   release_id: targetRelease.id,
-                  body: (targetRelease.body || "").replace(draftMarker, "").trimEnd(),
                   draft: false
                 });
                 console.log(`[发布完成] ${release.tag_name}，共 ${uploadedAssets.length} 个附件。`);
